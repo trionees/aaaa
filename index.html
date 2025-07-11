@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>영화 박스오피스 순위 (TOP 30)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* 가로 스크롤바 숨기기 */
+    #carouselRow {
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE 10+ */
+    }
+    #carouselRow::-webkit-scrollbar {
+      display: none; /* Chrome, Safari, Opera */
+    }
+    .card {
+      box-shadow: 0 4px 16px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.08);
+      border-radius: 1.2rem !important;
+      border: none;
+      transition: transform 0.18s, box-shadow 0.18s;
+      background: #fff;
+    }
+    .card:hover {
+      transform: translateY(-6px) scale(1.04);
+      box-shadow: 0 8px 24px 0 rgba(0,0,0,0.16), 0 2px 8px 0 rgba(0,0,0,0.10);
+      z-index: 2;
+    }
+    .card-img-top {
+      border-radius: 1rem 1rem 0 0 !important;
+      background: #f5f5f5;
+      box-shadow: 0 2px 8px 0 rgba(0,0,0,0.07);
+    }
+    .card-body {
+      padding-top: 0.5rem !important;
+      padding-bottom: 0.5rem !important;
+    }
+    .fw-bold {
+      color: #2d3a4b;
+      letter-spacing: 0.01em;
+    }
+    .card-title {
+      color: #1a2233;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+    }
+    .list-unstyled li {
+      color: #4a5568;
+      font-size: 0.93em;
+      margin-bottom: 0.1em;
+    }
+    .text-truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* 슬라이드 카드와 그리드 카드 구분 스타일(선택적) */
+    #carouselRow .card {
+      background: linear-gradient(135deg, #f8fafc 80%, #e3e8ee 100%);
+    }
+    #movieGrid .card {
+      background: linear-gradient(135deg, #f8fafc 90%, #e3e8ee 100%);
+    }
+    .rank-bg-1 { background: linear-gradient(135deg, #fffbe6 80%, #FFD700 100%) !important; }
+    .rank-bg-2 { background: linear-gradient(135deg, #f8fafc 80%, #C0C0C0 100%) !important; }
+    .rank-bg-3 { background: linear-gradient(135deg, #f8fafc 80%, #CD7F32 100%) !important; }
+    .slide-title, .grid-title { font-size: 1.18rem; font-weight: 700; color: #1a2233; margin-bottom: 0.2rem; }
+    @media (max-width: 600px) {
+      .slide-title, .grid-title { font-size: 1.05rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container my-5">
+    <div class="border rounded-4 p-4">
+      <h2 class="text-center mb-4">설명: 영화 순위별로 슬라이드로 지나감</h2>
+      <!-- 슬라이드 캐러셀 (가로 스크롤 슬라이더) -->
+      <div class="mb-5 position-relative">
+        <div id="carouselRow" class="d-flex overflow-auto flex-nowrap px-2" style="scroll-behavior:smooth; gap: 1rem;">
+          <!-- 영화 카드가 여기에 동적으로 생성됩니다 -->
+        </div>
+      </div>
+      <!-- 5x2 카드 그리드 -->
+      <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-5 g-4" id="movieGrid">
+        <!-- 영화 카드가 여기에 동적으로 생성됩니다 -->
+      </div>
+    </div>
+    <form id="dateForm" class="mt-5 mb-4 d-flex justify-content-center align-items-center gap-2">
+      <label for="targetDt" class="form-label mb-0">날짜 선택:</label>
+      <input type="date" id="targetDt" class="form-control" style="width: 200px;" value="2025-07-10">
+      <button type="submit" class="btn btn-primary">조회</button>
+    </form>
+    <div id="loading" class="text-center my-3" style="display:none;">불러오는 중...</div>
+    <div id="error" class="alert alert-danger d-none"></div>
+  </div>
+  <script>
+    const API_KEY = '36c8aa4c8104d81f50a6b4996b3a00a4';
+    const API_URL = 'http://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json';
+    const PLACEHOLDER = 'https://via.placeholder.com/150x220?text=포스터';
+    const TMDB_API_KEY = 'dfa77a25c2b5ca52a03fe6689c079417';
+    const TMDB_API_URL = 'https://api.themoviedb.org/3/search/movie';
+    const TMDB_IMG_URL = 'https://image.tmdb.org/t/p/w500';
+
+    function formatDate(date) {
+      return date.replaceAll('-', '');
+    }
+    function getToday() {
+      // 기준일을 2025-07-10으로 고정
+      return '2025-07-10';
+    }
+    // TMDB에서 영화 포스터 URL 가져오기 (캐시 활용)
+    const posterCache = {};
+    async function getPosterUrl(movieName) {
+      if (posterCache[movieName]) return posterCache[movieName];
+      try {
+        const url = `${TMDB_API_URL}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(movieName)}&language=ko`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('TMDB 요청 실패');
+        const data = await res.json();
+        const posterPath = data.results?.[0]?.poster_path;
+        if (posterPath) {
+          posterCache[movieName] = TMDB_IMG_URL + posterPath;
+          return posterCache[movieName];
+        }
+      } catch {}
+      posterCache[movieName] = PLACEHOLDER;
+      return PLACEHOLDER;
+    }
+    async function createCarouselRow(list) {
+      const row = document.getElementById('carouselRow');
+      if (!list || list.length === 0) {
+        row.innerHTML = '<div class="text-center w-100">데이터가 없습니다.</div>';
+        return;
+      }
+      const cards = list.slice(0, 10);
+      const loopCards = [
+        cards[6], cards[7], cards[8], cards[9],
+        ...cards,
+        cards[0], cards[1], cards[2], cards[3]
+      ];
+      row.innerHTML = loopCards.map((item, idx) => {
+        let bgClass = '';
+        if (item.rank == 1) bgClass = 'rank-bg-1';
+        else if (item.rank == 2) bgClass = 'rank-bg-2';
+        else if (item.rank == 3) bgClass = 'rank-bg-3';
+        return `
+        <div class="card border-3 rounded-4 flex-shrink-0 d-flex flex-column align-items-center ${bgClass}" style="width: 160px; height: 260px;">
+          <img id="carousel-poster-${idx}" src="${PLACEHOLDER}" class="card-img-top rounded-4 mt-2" style="width: 120px; height: 180px; object-fit: cover;" alt="포스터">
+          <div class="card-body p-2 w-100 d-flex flex-column align-items-center justify-content-center">
+            <div class="text-center fw-bold" style="font-size:1.1rem;">${item.rank}위</div>
+            <div class="text-center text-truncate slide-title" style="max-width:120px;">${item.movieNm}</div>
+          </div>
+        </div>
+        `;
+      }).join('');
+      loopCards.forEach(async (item, idx) => {
+        const url = await getPosterUrl(item.movieNm);
+        const img = document.getElementById(`carousel-poster-${idx}`);
+        if (img) img.src = url;
+      });
+      setTimeout(() => {
+        row.scrollLeft = 160 * 4;
+      }, 100);
+    }
+    async function createGrid(list) {
+      const grid = document.getElementById('movieGrid');
+      if (!list || list.length === 0) {
+        grid.innerHTML = '<div class="col"><div class="text-center">데이터가 없습니다.</div></div>';
+        return;
+      }
+      const cards = list.slice(0, 10);
+      grid.innerHTML = cards.map((item, idx) => {
+        let bgClass = '';
+        if (item.rank == 1) bgClass = 'rank-bg-1';
+        else if (item.rank == 2) bgClass = 'rank-bg-2';
+        else if (item.rank == 3) bgClass = 'rank-bg-3';
+        return `
+        <div class="col">
+          <div class="card border-3 rounded-4 h-100 d-flex flex-column align-items-center ${bgClass}" style="width: 160px; height: 320px;">
+            <img id="grid-poster-${idx}" src="${PLACEHOLDER}" class="card-img-top rounded-4 mt-2" style="width: 120px; height: 180px; object-fit: cover;" alt="포스터">
+            <div class="card-body w-100 p-2 d-flex flex-column align-items-center justify-content-center">
+              <h5 class="card-title text-center grid-title">${item.movieNm}</h5>
+              <ul class="list-unstyled mb-0 text-center" style="font-size:0.92rem;">
+                <li><strong>순위:</strong> ${item.rank}</li>
+                <li><strong>개봉일:</strong> ${item.openDt}</li>
+                <li><strong>누적 관객수:</strong> ${Number(item.audiAcc).toLocaleString()}</li>
+                <li><strong>일일 관객수:</strong> ${Number(item.audiCnt).toLocaleString()}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        `;
+      }).join('');
+      cards.forEach(async (item, idx) => {
+        const url = await getPosterUrl(item.movieNm);
+        const img = document.getElementById(`grid-poster-${idx}`);
+        if (img) img.src = url;
+      });
+    }
+    async function fetchBoxOffice(targetDt) {
+      document.getElementById('loading').style.display = '';
+      document.getElementById('error').classList.add('d-none');
+      createCarouselRow([]);
+      createGrid([]);
+      try {
+        const url = `${API_URL}?key=${API_KEY}&targetDt=${formatDate(targetDt)}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('API 요청 실패');
+        const data = await response.json();
+        const list = data.boxOfficeResult.dailyBoxOfficeList;
+        await createCarouselRow(list);
+        await createGrid(list);
+        setTimeout(() => {
+          document.getElementById('carouselRow').scrollLeft = 0;
+        }, 100);
+      } catch (err) {
+        document.getElementById('error').textContent = err.message;
+        document.getElementById('error').classList.remove('d-none');
+      } finally {
+        document.getElementById('loading').style.display = 'none';
+      }
+    }
+    document.getElementById('dateForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const date = document.getElementById('targetDt').value;
+      if (date) fetchBoxOffice(date);
+    });
+    document.getElementById('targetDt').value = getToday();
+    fetchBoxOffice(getToday());
+    let autoScrollInterval;
+    const carouselRow = document.getElementById('carouselRow');
+    // stopAutoScroll 함수 및 관련 호출 완전 제거
+    function startAutoScroll() {
+      if (autoScrollInterval) return;
+      autoScrollInterval = setInterval(() => {
+        const cardWidth = 160;
+        carouselRow.scrollBy({left: 1, behavior: 'smooth'});
+      }, 24);
+    }
+    // 무한루프: 10위 복제카드에 도달하면 1위 원본 카드 위치로 즉시 이동
+    carouselRow.addEventListener('scroll', () => {
+      const cardWidth = 160;
+      const visibleCards = 10;
+      const totalCards = carouselRow.children.length;
+      // 10위 복제카드(맨 뒤 4개 중 첫 번째)에 도달하면 1위 원본 카드 위치로 이동
+      if (carouselRow.scrollLeft >= cardWidth * (visibleCards + 4)) {
+        carouselRow.scrollLeft = cardWidth * 4;
+      }
+      // 반대로 맨 앞 복제카드로 스크롤 시 10위 원본 위치로 이동(수동 스크롤 대비)
+      if (carouselRow.scrollLeft <= 0) {
+        carouselRow.scrollLeft = cardWidth * (visibleCards);
+      }
+    });
+    // 최초 자동 슬라이드 시작(한 번만)
+    startAutoScroll();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 
